@@ -1,10 +1,15 @@
 const express = require('express')
 const pg = require('pg')
+var RateLimiter = require("./RateLimiter.js");
+
 
 const app = express()
+var myRL = new RateLimiter.RateLimiter(1, 5);
+
 // configs come from standard PostgreSQL env vars
 // https://www.postgresql.org/docs/9.6/static/libpq-envars.html
 const pool = new pg.Pool()
+
 
 const queryHandler = (req, res, next) => {
   pool.query(req.sqlQuery).then((r) => {
@@ -17,16 +22,24 @@ app.get('/', (req, res) => {
 })
 
 app.get('/events/hourly', (req, res, next) => {
+  var timestamp = new Date();
   req.sqlQuery = `
     SELECT date, hour, events
     FROM public.hourly_events
     ORDER BY date, hour
     LIMIT 168;
   `
-  return next()
+  if (myRL.appendNewRequest(timestamp, req.headers.token)) {
+    return next()
+  } else {
+    res.status(429)
+    res.json("You have reached your request limit, please wait.");
+    return;
+  }
 }, queryHandler)
 
 app.get('/events/daily', (req, res, next) => {
+  var timestamp = new Date();
   req.sqlQuery = `
     SELECT date, SUM(events) AS events
     FROM public.hourly_events
@@ -34,20 +47,34 @@ app.get('/events/daily', (req, res, next) => {
     ORDER BY date
     LIMIT 7;
   `
-  return next()
+  if (myRL.appendNewRequest(timestamp, req.headers.token)) {
+    return next()
+  } else {
+    res.status(429)
+    res.json("You have reached your request limit, please wait.");
+    return;
+  }
 }, queryHandler)
 
 app.get('/stats/hourly', (req, res, next) => {
+  var timestamp = new Date();
   req.sqlQuery = `
     SELECT date, hour, impressions, clicks, revenue
     FROM public.hourly_stats
     ORDER BY date, hour
     LIMIT 168;
   `
-  return next()
+  if (myRL.appendNewRequest(timestamp, req.headers.token)) {
+    return next()
+  } else {
+    res.status(429)
+    res.json("You have reached your request limit, please wait.");
+    return;
+  }
 }, queryHandler)
 
 app.get('/stats/daily', (req, res, next) => {
+  var timestamp = new Date();
   req.sqlQuery = `
     SELECT date,
         SUM(impressions) AS impressions,
@@ -62,11 +89,18 @@ app.get('/stats/daily', (req, res, next) => {
 }, queryHandler)
 
 app.get('/poi', (req, res, next) => {
+  var timestamp = new Date();
   req.sqlQuery = `
     SELECT *
     FROM public.poi;
   `
-  return next()
+  if (myRL.appendNewRequest(timestamp, req.headers.token)) {
+    return next()
+  } else {
+    res.status(429)
+    res.json("You have reached your request limit, please wait.");
+    return;
+  }
 }, queryHandler)
 
 app.listen(process.env.PORT || 5555, (err) => {
